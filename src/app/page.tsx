@@ -107,31 +107,15 @@ function parseDurMins(dur: string): number {
 }
 
 function recalcDayTimes(blocks: Block[]): Block[] {
-  const prayerBlocks = blocks.filter(b => b.category === "prayer")
-    .sort((a, b) => parseMins(a.time) - parseMins(b.time));
-  const nonPrayer = blocks.filter(b => b.category !== "prayer");
-  if (nonPrayer.length === 0) return blocks;
-
+  if (blocks.length === 0) return blocks;
   const anchor = parseMins(blocks[0].time);
   let cur = anchor;
-  let pi = 0;
   const result: Block[] = [];
-
-  for (const block of nonPrayer) {
-    const dur = parseDurMins(block.duration);
-    while (pi < prayerBlocks.length) {
-      const pt = parseMins(prayerBlocks[pi].time);
-      if (pt <= cur + dur) {
-        if (pt > cur) cur = pt;
-        result.push(prayerBlocks[pi]);
-        cur = pt + parseDurMins(prayerBlocks[pi].duration || "15 min") + 10;
-        pi++;
-      } else break;
-    }
+  for (const block of blocks) {
+    const dur = parseDurMins(block.duration || "15 min");
     result.push({ ...block, time: formatMins(cur) });
     cur += dur + 10;
   }
-  while (pi < prayerBlocks.length) { result.push(prayerBlocks[pi]); pi++; }
   return result;
 }
 
@@ -145,8 +129,7 @@ interface SortableBlockProps {
 }
 
 function SortableBlock({ id, block, isDone, isRecentlyChanged, onToggle, getTagColor }: SortableBlockProps) {
-  const isPrayer = block.category === "prayer";
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: isPrayer });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = { transform: CSS.Transform.toString(transform), transition: transition ?? "150ms ease", opacity: isDragging ? 0.5 : 1 };
 
   return (
@@ -154,16 +137,14 @@ function SortableBlock({ id, block, isDone, isRecentlyChanged, onToggle, getTagC
       className={clsx(
         "group bg-background border border-border p-2.5 rounded-lg relative overflow-hidden transition-colors duration-200 select-none",
         isDone && "opacity-40",
-        !isPrayer && "cursor-pointer hover:border-primary/30",
+        "cursor-pointer hover:border-primary/30",
         isRecentlyChanged && "animate-flash-border"
       )}>
       <div className={clsx("absolute top-0 left-0 w-1 h-full", getTagColor(block.category).strip)} />
       <div className="flex items-start gap-1 pl-2">
-        <div {...(!isPrayer ? { ...attributes, ...listeners } : {})} onClick={e => e.stopPropagation()}
-          className={clsx("flex-shrink-0 mt-0.5 w-5 flex items-center justify-center",
-            isPrayer ? "text-textMuted opacity-40 cursor-not-allowed"
-              : "text-textMuted opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing hover:text-primary transition-opacity")}>
-          {isPrayer ? <Lock size={11} /> : <GripVertical size={14} />}
+        <div {...{ ...attributes, ...listeners }} onClick={e => e.stopPropagation()}
+          className="flex-shrink-0 mt-0.5 w-5 flex items-center justify-center text-textMuted opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing hover:text-primary transition-opacity">
+          <GripVertical size={14} />
         </div>
         <div className={clsx("flex-shrink-0 mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center transition-all",
           isDone ? "bg-primary border-primary" : "border-primary/40 bg-transparent")}>
@@ -366,7 +347,6 @@ export default function PlanGPT() {
     const aIdx = dayBlocks.findIndex((_, i) => `${day}-${i}` === active.id);
     const oIdx = dayBlocks.findIndex((_, i) => `${day}-${i}` === over.id);
     if (aIdx === -1 || oIdx === -1) return;
-    if (dayBlocks[aIdx].category === "prayer") return;
     const moved   = arrayMove(dayBlocks, aIdx, oIdx);
     const recalcd = recalcDayTimes(moved);
     // Remap completion keys by title to preserve checked state
