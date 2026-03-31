@@ -195,7 +195,11 @@ export default function PlanGPT() {
   const [showSettings, setShowSettings] = useState(false);
 
   // ── Drag & drop ──
-  const [originalSchedule, setOriginalSchedule] = useState<WeekSchedule | null>(() => loadLS("plangpt_original_week", null));
+  const [originalSchedule, setOriginalSchedule] = useState<WeekSchedule | null>(() => {
+    const orig = loadLS("plangpt_original_week", null);
+    if (orig) return orig as WeekSchedule;
+    return loadLS("plangpt_current_week", null) as WeekSchedule | null ?? loadLS("plangpt_schedule", null) as WeekSchedule | null;
+  });
   const [modifiedDays, setModifiedDays]         = useState<Set<string>>(() => new Set(loadLS<string[]>("plangpt_modified_days", [])));
   const [recentlyChanged, setRecentlyChanged]   = useState<Set<string>>(new Set());
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -297,9 +301,21 @@ export default function PlanGPT() {
 
       if (isMidWeek && schedule) {
         const merged = { ...schedule };
-        daysToSchedule.forEach(day => { if (data.week?.[day]) merged[day] = data.week[day]; });
+        const mergedOrig = { ...(originalSchedule || schedule) };
+        daysToSchedule.forEach(day => { 
+          if (data.week?.[day]) {
+            merged[day] = data.week[day]; 
+            mergedOrig[day] = data.week[day];
+          }
+        });
         setSchedule(merged);
+        setOriginalSchedule(mergedOrig);
         setMwName(""); setMwMins(30); setDrawerOpen(false);
+        setModifiedDays(prev => {
+          const n = new Set(prev);
+          daysToSchedule.forEach(d => n.delete(d));
+          return n;
+        });
       } else {
         const freshWeek = data.week || null;
         setSchedule(freshWeek);
@@ -371,9 +387,29 @@ export default function PlanGPT() {
   };
 
   const resetDay = (day: string) => {
-    if (!originalSchedule?.[day]) return;
-    setSchedule(prev => prev ? { ...prev, [day]: originalSchedule![day] } : prev);
-    setModifiedDays(prev => { const n = new Set(prev); n.delete(day); return n; });
+    if (!originalSchedule?.[day] || !schedule?.[day]) return;
+
+    const origBlocks = originalSchedule[day].blocks;
+    const currentBlocks = schedule[day].blocks;
+
+    // Remap completion data back to original order
+    const titleDone: Record<string, boolean> = {};
+    const newCD: CompletionData = { ...completionData };
+    currentBlocks.forEach((b, i) => { titleDone[`${day}||${b.title}`] = !!newCD[`${day}-${i}`]; });
+    currentBlocks.forEach((_, i) => { delete newCD[`${day}-${i}`]; });
+    origBlocks.forEach((b, i) => { if (titleDone[`${day}||${b.title}`]) newCD[`${day}-${i}`] = true; });
+
+    const newSchedule = { ...schedule, [day]: originalSchedule[day] };
+    const newModified = new Set(modifiedDays);
+    newModified.delete(day);
+
+    localStorage.setItem("plangpt_current_week", JSON.stringify(newSchedule));
+    localStorage.setItem(`plangpt_completion_${completionKey}`, JSON.stringify(newCD));
+    localStorage.setItem("plangpt_modified_days", JSON.stringify(Array.from(newModified)));
+
+    setCompletionData(newCD);
+    setSchedule(newSchedule);
+    setModifiedDays(newModified);
   };
 
   const displaySchedule  = reviewWeek?.schedule     ?? schedule;
